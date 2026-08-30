@@ -19,6 +19,23 @@ logging.basicConfig(
     stream=sys.stdout,
 )
 
+# ── Helper — defined BEFORE it is called below ─────────────────────────────────
+def _extract_caveat(text: str) -> str:
+    """Extract a data quality caveat sentence from answer text if present."""
+    lower = text.lower()
+    caveat_phrases = [
+        "missing deal value", "no recorded value", "pipeline may be understated",
+        "may be higher", "excluded from", "data quality",
+        "100% empty", "not supported", "limitation",
+    ]
+    for phrase in caveat_phrases:
+        if phrase in lower:
+            for sentence in text.replace("\n", " ").split("."):
+                if phrase in sentence.lower() and len(sentence.strip()) > 20:
+                    return sentence.strip() + "."
+    return ""
+
+
 # ── Page config ────────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="Skylark Drones BI Agent",
@@ -34,7 +51,6 @@ st.caption(
 
 # ── Config check ───────────────────────────────────────────────────────────────
 def _check_config() -> list[str]:
-    """Return list of missing config keys."""
     missing = []
     if not os.environ.get("MONDAY_API_TOKEN"):
         missing.append("MONDAY_API_TOKEN")
@@ -45,6 +61,7 @@ def _check_config() -> list[str]:
     if not os.environ.get("GEMINI_API_KEY"):
         missing.append("GEMINI_API_KEY")
     return missing
+
 
 missing_config = _check_config()
 if missing_config:
@@ -89,17 +106,15 @@ for msg in st.session_state.messages:
 
 # ── Input ──────────────────────────────────────────────────────────────────────
 prefill = st.session_state.pop("prefill", "")
-user_input = st.chat_input("Ask a question about deals, pipeline, or work orders…", key="chat_input")
+user_input = st.chat_input("Ask a question about deals, pipeline, or work orders…")
 if prefill:
     user_input = prefill
 
 if user_input:
-    # Display user message
     st.session_state.messages.append({"role": "user", "content": user_input})
     with st.chat_message("user"):
         st.markdown(user_input)
 
-    # Call agent
     with st.chat_message("assistant"):
         with st.spinner("Querying Monday.com…"):
             if missing_config:
@@ -116,7 +131,6 @@ if user_input:
                 result = run_leadership_update()
             else:
                 from agent.loop import run_agent
-                # Pass conversation history (excluding current user message)
                 history = [
                     {"role": m["role"], "content": m["content"]}
                     for m in st.session_state.messages[:-1]
@@ -133,12 +147,10 @@ if user_input:
         else:
             st.markdown(answer)
 
-        # Extract and display data quality caveat separately
         caveat = _extract_caveat(answer)
         if caveat:
             st.caption(f"ℹ️ {caveat}")
 
-        # Show tool call trace in expander for transparency
         if tool_calls:
             with st.expander("🔍 Tool calls (live Monday.com trace)", expanded=False):
                 for tc in tool_calls:
@@ -149,29 +161,8 @@ if user_input:
                         language="text",
                     )
 
-    # Store assistant message
     st.session_state.messages.append({
         "role": "assistant",
         "content": answer,
         "caveat": caveat,
     })
-
-
-def _extract_caveat(text: str) -> str:
-    """
-    Extract a data quality caveat from answer text if present.
-    Looks for common caveat phrases.
-    """
-    lower = text.lower()
-    caveat_phrases = [
-        "missing deal value", "no recorded value", "pipeline may be understated",
-        "may be higher", "null", "excluded from", "incomplete", "data quality",
-        "100% empty", "not supported", "limitation",
-    ]
-    for phrase in caveat_phrases:
-        if phrase in lower:
-            # Find the sentence containing the phrase
-            for sentence in text.replace("\n", " ").split("."):
-                if phrase in sentence.lower() and len(sentence.strip()) > 20:
-                    return sentence.strip() + "."
-    return ""

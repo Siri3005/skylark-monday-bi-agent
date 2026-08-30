@@ -88,8 +88,7 @@ TOOL_SCHEMAS = [
                 },
                 "weighted": {
                     "type": "boolean",
-                    "description": "Apply probability weighting: High=75%, Med=50%, Low=25%. Stated assumption.",
-                    "default": False,
+                    "description": "Apply probability weighting: High=75%, Med=50%, Low=25%. Stated assumption. Defaults to false.",
                 },
                 "status": {
                     "type": "array",

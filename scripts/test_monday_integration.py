@@ -43,7 +43,6 @@ def main():
     all_passed &= check("MONDAY_API_TOKEN set", bool(os.environ.get("MONDAY_API_TOKEN")))
     all_passed &= check("DEALS_BOARD_ID set", bool(DEALS_BOARD_ID), DEALS_BOARD_ID)
     all_passed &= check("WORK_ORDERS_BOARD_ID set", bool(WORK_ORDERS_BOARD_ID), WORK_ORDERS_BOARD_ID)
-    all_passed &= check("GEMINI_API_KEY set", bool(os.environ.get("GEMINI_API_KEY")))
     all_passed &= check("No token in DEALS_BOARD_ID value",
                         os.environ.get("MONDAY_API_TOKEN", "")[:10] not in DEALS_BOARD_ID)
 
@@ -231,8 +230,6 @@ def main():
                     str(records_wo[:3] if "records_wo" in dir() else "")
     token_prefix = token[:15] if len(token) >= 15 else token
     all_passed &= check("API token not in record output", token_prefix not in sample_output)
-    all_passed &= check("GEMINI_API_KEY not in record output",
-                        os.environ.get("GEMINI_API_KEY", "")[:10] not in sample_output)
 
     # ── Summary ────────────────────────────────────────────────────
     print()

@@ -1,4 +1,4 @@
-# Secrets — never commit these
+# Secrets — never commit
 .env
 .streamlit/secrets.toml
 
@@ -7,15 +7,19 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
-.Python
 
-# Test/build artifacts
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Test and build artifacts
 .pytest_cache/
+.coverage
+htmlcov/
 *.egg-info/
 dist/
 build/
-.coverage
-htmlcov/
 
 # OS
 .DS_Store
@@ -26,7 +30,7 @@ Thumbs.db
 *.xls
 *.csv
 
-# Local dev
-.venv/
-venv/
-env/
+# Local IDE
+.idea/
+.vscode/
+*.swp

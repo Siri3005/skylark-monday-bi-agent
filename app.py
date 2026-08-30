@@ -42,9 +42,8 @@ def _check_config() -> list[str]:
         missing.append("DEALS_BOARD_ID")
     if not os.environ.get("WORK_ORDERS_BOARD_ID"):
         missing.append("WORK_ORDERS_BOARD_ID")
-    has_llm = os.environ.get("OPENAI_API_KEY") or os.environ.get("ANTHROPIC_API_KEY")
-    if not has_llm:
-        missing.append("OPENAI_API_KEY (or ANTHROPIC_API_KEY)")
+    if not os.environ.get("GEMINI_API_KEY"):
+        missing.append("GEMINI_API_KEY")
     return missing
 
 missing_config = _check_config()

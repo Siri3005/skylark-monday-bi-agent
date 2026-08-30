@@ -49,7 +49,7 @@ Monday.com: Deals board + Work Orders board (live)
 | Component | Choice | Why |
 |---|---|---|
 | Frontend/Backend | Streamlit (single app) | Fastest path to a working hosted chat UI; avoids separate FastAPI service deployment overhead |
-| LLM | OpenAI GPT-4o or Anthropic Claude (configurable) | Native tool-calling; direct API avoids heavy framework overhead |
+| LLM | Google Gemini 1.5 Flash | Free tier available, native function-calling support, no billing required for moderate usage |
 | Monday.com access | GraphQL API v2 | Directly callable from Python, no extra infrastructure vs MCP |
 | Deployment | Streamlit Community Cloud | Free, zero-config public URL |
 
@@ -149,16 +149,9 @@ Copy `.env.example` to `.env` and fill in:
 MONDAY_API_TOKEN=your_token_here
 DEALS_BOARD_ID=1234567890
 WORK_ORDERS_BOARD_ID=0987654321
-OPENAI_API_KEY=sk-...
-LLM_PROVIDER=openai
-LLM_MODEL=gpt-4o
-```
-
-For Anthropic instead:
-```
-ANTHROPIC_API_KEY=sk-ant-...
-LLM_PROVIDER=anthropic
-LLM_MODEL=claude-3-5-sonnet-20241022
+GEMINI_API_KEY=your_gemini_api_key_here
+LLM_PROVIDER=gemini
+LLM_MODEL=gemini-1.5-flash
 ```
 
 ---
@@ -194,9 +187,9 @@ python tests/test_calculations.py
    MONDAY_API_TOKEN = "your_token"
    DEALS_BOARD_ID = "1234567890"
    WORK_ORDERS_BOARD_ID = "0987654321"
-   OPENAI_API_KEY = "sk-..."
-   LLM_PROVIDER = "openai"
-   LLM_MODEL = "gpt-4o"
+   GEMINI_API_KEY = "your_gemini_key"
+   LLM_PROVIDER = "gemini"
+   LLM_MODEL = "gemini-1.5-flash"
    ```
 5. Deploy — get a public URL that works without any local setup
 
@@ -262,7 +255,7 @@ python tests/test_calculations.py
 
 ## AI Tools Used
 
-- **LLM for agent reasoning**: OpenAI GPT-4o (or Anthropic Claude 3.5 Sonnet) via native tool-calling API
+- **LLM for agent reasoning**: Google Gemini 1.5 Flash via `google-generativeai` SDK (native function-calling)
 - **Coding assistant**: Kiro AI (used to scaffold and implement this project)
 
 ---

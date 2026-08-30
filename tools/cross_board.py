@@ -79,6 +79,7 @@ def _sector_comparison(deals: list, wos: list, question_type: str) -> dict:
         won_deals = [r for r in sec_deals if r.get("deal_status") == "Won"]
         pipeline_val = sum(r["deal_value"] for r in open_deals if r["deal_value"] is not None)
         billed = sum(r.get("billed_incl_gst") or 0 for r in sec_wos)
+        contract_val = sum(r.get("amount_excl_gst") or 0 for r in sec_wos)
         active_wos = sum(1 for r in sec_wos if r.get("execution_status") in ACTIVE_EXECUTION_STATUSES)
         completed_wos = sum(1 for r in sec_wos if r.get("execution_status") == "Completed")
 
@@ -98,7 +99,8 @@ def _sector_comparison(deals: list, wos: list, question_type: str) -> dict:
             "total_work_orders": len(sec_wos),
             "active_work_orders": active_wos,
             "completed_work_orders": completed_wos,
-            "billed_value": round(billed, 2),
+            "contract_value_excl_gst": round(contract_val, 2),
+            "billed_value_incl_gst": round(billed, 2),
             "signal": signal,
         }
 

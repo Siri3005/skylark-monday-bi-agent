@@ -388,6 +388,7 @@ def calculate_sector_performance(sector: Optional[str] = None) -> dict:
         active_wos = [r for r in sec_wos if r.get("execution_status") in ACTIVE_EXECUTION_STATUSES]
         completed_wos = [r for r in sec_wos if r.get("execution_status") == "Completed"]
         billed_val = sum(r.get("billed_incl_gst") or 0 for r in sec_wos)
+        contract_val = sum(r.get("amount_excl_gst") or 0 for r in sec_wos)  # PO/contract value
 
         performance[sec] = {
             "deals": {
@@ -403,6 +404,7 @@ def calculate_sector_performance(sector: Optional[str] = None) -> dict:
                 "total": len(sec_wos),
                 "active": len(active_wos),
                 "completed": len(completed_wos),
+                "contract_value_excl_gst": round(contract_val, 2),
                 "billed_value_incl_gst": round(billed_val, 2),
             },
             "pipeline_vs_execution": (

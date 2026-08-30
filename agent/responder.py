@@ -515,17 +515,26 @@ def _format_cross_board(q: ParsedQuery, data: dict) -> str:
         return "\n".join(lines)
 
     lines = ["**Pipeline vs Execution by Sector:**", ""]
-    lines.append("| Sector | Open Deals | Pipeline | WOs Total | Active WOs | Billed | Signal |")
-    lines.append("|--------|----------:|---------:|----------:|-----------:|-------:|--------|")
+    lines.append(
+        "> **Column guide:** Pipeline = open deal value (Deals board) · "
+        "Contract = PO/contract value excl. GST (Work Orders) · "
+        "Billed = invoiced incl. GST (Work Orders)"
+    )
+    lines.append("")
+    lines.append("| Sector | Open Deals | Pipeline | WOs | Active | Contract Value | Billed | Signal |")
+    lines.append("|--------|----------:|---------:|----:|-------:|---------------:|-------:|--------|")
     for sec, d in sector_comparison.items():
         signal_emoji = {
             "strong_pipeline_weak_execution": "⚡ High pipeline",
             "strong_execution_low_new_pipeline": "🔧 Active ops",
             "healthy_both": "✅ Balanced",
         }.get(d["signal"], "—")
+        contract = d.get("contract_value_excl_gst", d.get("billed_value", 0))
+        billed = d.get("billed_value_incl_gst", d.get("billed_value", 0))
         lines.append(
             f"| {sec} | {d['open_deals']} | {_fmt_inr(d['open_pipeline_value'])} | "
-            f"{d['total_work_orders']} | {d['active_work_orders']} | {_fmt_inr(d['billed_value'])} | {signal_emoji} |"
+            f"{d['total_work_orders']} | {d['active_work_orders']} | "
+            f"{_fmt_inr(contract)} | {_fmt_inr(billed)} | {signal_emoji} |"
         )
     lines.append("")
 

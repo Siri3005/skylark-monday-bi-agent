@@ -1,46 +1,58 @@
 # Skylark Drones – Monday.com BI Agent
 
-A read-only, tool-calling AI agent that answers founder-level BI questions by querying two live Monday.com boards (Deals & Work Orders) in real time. No Excel files are loaded at runtime — all data comes from fresh Monday.com GraphQL calls at query time.
+A conversational, founder-level business intelligence agent that queries two live Monday.com boards (Deals & Work Orders) in real time and answers natural-language questions without any external LLM API.
 
 ---
 
-## Overview & Problem Statement
+## Overview
 
-Skylark Drones needs a conversational BI interface that lets a founder ask natural-language questions about the company's sales pipeline and operational execution. The system must:
-- Pull data from Monday.com dynamically (not from cached files)
-- Use deterministic Python calculations — LLM never computes numbers
-- Surface data-quality caveats when data is missing or ambiguous
-- Answer cross-board questions at the sector and owner level
+Skylark Drones needed a way to get quick, accurate answers to business questions across Monday.com boards — without manually exporting data, running ad-hoc queries, or waiting for a data analyst.
+
+This agent:
+- Connects directly to Monday.com via GraphQL API (read-only)
+- Parses natural-language founder questions deterministically
+- Queries the correct board(s) dynamically at query time
+- Returns contextual insights with data-quality caveats
+- Asks clarifying questions when a query is genuinely ambiguous
+- Runs with **no external LLM API** — no Gemini, no OpenAI, no Anthropic
 
 ---
 
 ## Architecture
 
 ```
-User (browser)
-    │
-    ▼
-Streamlit Chat UI (app.py)
-    │
-    ▼
-Agent Loop (agent/loop.py)
- LLM tool-calling: OpenAI or Anthropic
-    │
-    ▼
-Tool Dispatcher (agent/tool_dispatcher.py)
-    │
-    ├─ tools/retrieval.py        get_deals(), get_work_orders()
-    ├─ tools/calculations.py     calculate_pipeline(), calculate_revenue(), ...
-    ├─ tools/cross_board.py      cross_board_metric()
-    └─ tools/data_quality.py     check_data_quality()
-    │
-    ▼
-Monday.com GraphQL Client (monday/client.py)
-  - Read-only, cursor-paginated, retry logic
-    │
-    ▼
-Monday.com: Deals board + Work Orders board (live)
+User question (browser)
+        │
+        ▼
+Streamlit Chat UI  (app.py)
+        │
+        ▼
+┌─────────────────────────────────────────────┐
+│            Deterministic Agent Loop         │
+│                 (agent/loop.py)             │
+│                                             │
+│  1. Parser      (agent/parser.py)           │
+│     regex + synonym dicts → ParsedQuery     │
+│                                             │
+│  2. Planner     (agent/planner.py)          │
+│     ParsedQuery → tool execution plan       │
+│                                             │
+│  3. BI Tools    (tools/)                    │
+│     deterministic Python calculations       │
+│                                             │
+│  4. Responder   (agent/responder.py)        │
+│     structured data → markdown answer       │
+└─────────────────────────────────────────────┘
+        │
+        ▼
+Monday.com GraphQL Client  (monday/client.py)
+  Read-only · cursor pagination · retry logic
+        │
+        ├── Deals board  (ID: 5030966266)
+        └── Work Orders board  (ID: 5030966343)
 ```
+
+**No external LLM is used.** The parser, planner, and responder are all deterministic Python. The architecture is explicitly designed so an LLM could be plugged in at the parser/responder level later — the BI tools and Monday.com integration would remain unchanged.
 
 ---
 
@@ -48,10 +60,20 @@ Monday.com: Deals board + Work Orders board (live)
 
 | Component | Choice | Why |
 |---|---|---|
-| Frontend/Backend | Streamlit (single app) | Fastest path to a working hosted chat UI; avoids separate FastAPI service deployment overhead |
-| LLM | Google Gemini 1.5 Flash | Free tier available, native function-calling support, no billing required for moderate usage |
-| Monday.com access | GraphQL API v2 | Directly callable from Python, no extra infrastructure vs MCP |
+| Frontend/Backend | Streamlit (single app) | Fastest path to a hosted chat UI; one deployment surface |
+| Query understanding | Deterministic NLP (regex + synonym dicts) | No API cost, auditable, predictable — LLM pluggable later |
+| Monday.com access | GraphQL API v2 | Directly callable from Python, full pagination support |
 | Deployment | Streamlit Community Cloud | Free, zero-config public URL |
+
+### No external LLM API
+
+The current implementation does not use Gemini, OpenAI, Claude, or any other external AI inference service. This means:
+- No API cost or billing required
+- No dependency on third-party AI availability
+- Every answer is fully traceable and auditable
+- Results are deterministic and reproducible
+
+**Documented limitation:** A deterministic parser has less linguistic flexibility than a general-purpose LLM. It handles well-structured founder questions well, but may not parse highly idiomatic phrasing. The architecture supports adding an LLM backend in future without changing the BI tools or Monday.com integration.
 
 ---
 
@@ -59,100 +81,72 @@ Monday.com: Deals board + Work Orders board (live)
 
 ```
 skylark-monday-bi-agent/
-├── app.py                    # Streamlit entrypoint (chat UI)
+├── app.py                      # Streamlit chat UI entry point
 ├── agent/
-│   ├── loop.py               # Tool-calling agent loop (OpenAI + Anthropic)
-│   ├── system_prompt.py      # Disambiguation rules, anti-hallucination instructions
-│   ├── tool_schemas.py       # JSON schemas for all tools (LLM sees these)
-│   └── tool_dispatcher.py    # Routes tool names to Python functions
+│   ├── loop.py                 # Main agent orchestration
+│   ├── parser.py               # Deterministic NLP query parser
+│   ├── planner.py              # Query plan execution
+│   ├── responder.py            # Structured data → conversational text
+│   ├── tool_dispatcher.py      # Routes tool names to Python functions
+│   └── _legacy/                # Prior Gemini-era files (archived, not used)
 ├── tools/
-│   ├── retrieval.py          # get_deals(), get_work_orders() — live Monday.com calls
-│   ├── calculations.py       # calculate_pipeline(), calculate_revenue(), etc.
-│   ├── cross_board.py        # cross_board_metric() — sector + owner level only
-│   └── data_quality.py       # check_data_quality()
+│   ├── retrieval.py            # get_deals(), get_work_orders() — live Monday calls
+│   ├── calculations.py         # calculate_pipeline(), calculate_revenue(), etc.
+│   ├── cross_board.py          # cross_board_metric() — sector + owner level
+│   └── data_quality.py         # check_data_quality()
 ├── monday/
-│   ├── client.py             # GraphQL client, pagination, error handling
-│   └── schema.py             # Board ID constants, config
-├── normalize.py              # Date/text/numeric normalization functions
+│   ├── client.py               # GraphQL client, pagination, error handling
+│   └── schema.py               # Board ID constants, config
+├── normalize.py                # Date/text/numeric normalization
 ├── tests/
-│   └── test_calculations.py  # Normalization + calculation spot-checks
+│   ├── test_calculations.py    # Normalization + calculation unit tests (19 tests)
+│   └── test_parser.py          # NLP parser unit tests (36 tests)
 ├── scripts/
-│   └── one_time_ingest.py    # ONE-TIME: cleans Excel → CSV for Monday.com import
-├── deals_clean.csv           # Generated by ingest script (for Monday.com import)
-├── work_orders_clean.csv     # Generated by ingest script (for Monday.com import)
+│   ├── test_monday_integration.py  # Live Monday.com integration tests (39 tests)
+│   ├── validate_scenarios.py       # Assignment scenario validation (77 checks)
+│   └── one_time_ingest.py          # One-time: Excel → CSV for board setup
 ├── .env.example
 ├── requirements.txt
 ├── DECISION_LOG.md
 └── README.md
 ```
 
-**Important:** The deployed app never reads `deals_clean.csv`, `work_orders_clean.csv`, or any Excel files. Those CSVs are used only once during board setup, then the app queries Monday.com exclusively.
-
 ---
 
 ## Prerequisites
 
 - Python 3.11+
-- A Monday.com account with two boards (see setup below)
-- OpenAI API key **or** Anthropic API key
+- A Monday.com account with two boards (Deals and Work Orders — already set up)
+- No LLM API key required
 
 ---
 
 ## Monday.com Setup
 
-### 1. Create the Deals board
+The boards have already been created and populated:
+- **Deals board** ID: `5030966266` (344 records)
+- **Work Orders board** ID: `5030966343` (176 records)
 
-1. Go to Monday.com → Add board → Import from Excel/CSV
-2. Upload `deals_clean.csv` (generated by `scripts/one_time_ingest.py`, or use the pre-generated one in this repo)
-3. Map columns to types:
-   - `Deal Name` → Item name
-   - `Owner code`, `Client Code`, `Product deal` → Text
-   - `Deal Status`, `Closure Probability`, `Deal Stage`, `Sector/service` → Status
-   - `Masked Deal value` → Numbers
-   - `Close Date (A)`, `Tentative Close Date`, `Created Date` → Date
-4. After import, verify: board should have **344 items**
-
-### 2. Create the Work Orders board
-
-1. Add board → Import from Excel/CSV
-2. Upload `work_orders_clean.csv`
-3. Map columns to types:
-   - `Deal name masked` → Item name
-   - `Customer Name Code`, `Serial #`, `BD/KAM Personnel code`, `latest invoice no.`, `Quantities as per PO` → Text
-   - `Execution Status`, `Invoice Status`, `WO Status (billed)`, `Billing Status`, `Nature of Work`, `Document Type`, `Type of Work` → Status
-   - All monetary fields (`Amount in Rupees...`, `Billed Value...`, `Collected Amount...`, `Amount Receivable...`) → Numbers
-   - `Quantity by Ops`, `Quantity billed (till date)`, `Balance in quantity` → Numbers
-   - `Data Delivery Date`, `Date of PO/LOI`, `Probable Start Date`, `Probable End Date`, `Last invoice date` → Date
-4. After import, verify: board should have **176 items**
-
-### 3. Get Board IDs
-
-After creating each board, find the board ID in the URL:
-`https://your-account.monday.com/boards/**1234567890**/`
-
-Or via the API:
-```graphql
-query { boards { id name } }
-```
-
-### 4. Get an API Token
-
-Monday.com → your avatar (top right) → Administration → API → Generate token
+To set up from scratch on a new account:
+1. Run `python scripts/one_time_ingest.py` to generate `deals_clean.csv` and `work_orders_clean.csv`
+2. In Monday.com: Add board → Import from Excel/CSV for each file
+3. Verify item counts: Deals = 344, Work Orders = 176
+4. Get your board IDs from the board URL: `monday.com/boards/<ID>`
+5. Generate an API token: Avatar → Administration → API
 
 ---
 
 ## Environment Variables
 
-Copy `.env.example` to `.env` and fill in:
+Copy `.env.example` to `.env`:
 
 ```
-MONDAY_API_TOKEN=your_token_here
-DEALS_BOARD_ID=1234567890
-WORK_ORDERS_BOARD_ID=0987654321
-GEMINI_API_KEY=your_gemini_api_key_here
-LLM_PROVIDER=gemini
-LLM_MODEL=gemini-1.5-flash
+MONDAY_API_TOKEN=your_monday_api_token_here
+DEALS_BOARD_ID=5030966266
+WORK_ORDERS_BOARD_ID=5030966343
 ```
+
+No LLM API key is needed.
 
 ---
 
@@ -162,107 +156,146 @@ LLM_MODEL=gemini-1.5-flash
 cd skylark-monday-bi-agent
 pip install -r requirements.txt
 cp .env.example .env
-# Fill in .env values
+# Fill in MONDAY_API_TOKEN
 
-streamlit run app.py
+python -m streamlit run app.py
 ```
 
 Open http://localhost:8501
 
-### Run tests
+### Run all tests
 
 ```bash
+# Unit tests
 python tests/test_calculations.py
+python tests/test_parser.py
+
+# Live integration tests (requires .env)
+python scripts/test_monday_integration.py
+
+# Full assignment scenario validation (requires .env)
+python scripts/validate_scenarios.py
 ```
 
 ---
 
 ## Deployment (Streamlit Community Cloud)
 
-1. Push this repo to GitHub (public or private)
-2. Go to https://share.streamlit.io → New app → Connect repo
-3. Set `Main file path` to `app.py`
-4. Add secrets under "Advanced settings → Secrets":
+1. Push repo to GitHub
+2. Go to https://share.streamlit.io → New app
+3. Set repository, branch `main`, main file `app.py`
+4. Under Advanced → Secrets, add:
    ```toml
-   MONDAY_API_TOKEN = "your_token"
-   DEALS_BOARD_ID = "1234567890"
-   WORK_ORDERS_BOARD_ID = "0987654321"
-   GEMINI_API_KEY = "your_gemini_key"
-   LLM_PROVIDER = "gemini"
-   LLM_MODEL = "gemini-1.5-flash"
+   MONDAY_API_TOKEN = "your_token_here"
+   DEALS_BOARD_ID = "5030966266"
+   WORK_ORDERS_BOARD_ID = "5030966343"
    ```
-5. Deploy — get a public URL that works without any local setup
+5. Deploy — public URL ready in ~2 minutes
 
-**Note:** Free-tier Streamlit Cloud apps may have a cold-start delay of 20–30 seconds on first load. This is expected — not a bug.
+**Note:** Free-tier apps may have a 20–30 second cold-start delay on first load.
 
 ---
 
 ## Example Queries
 
-1. "How many deals and work orders do we have in total?"
-2. "What's our current open pipeline value?"
-3. "Break the pipeline down by sector."
-4. "What's our pipeline for this quarter's expected closes?"
-5. "How many work orders are currently active vs completed?"
-6. "Compare pipeline and execution strength by sector."
-7. "What's our revenue?" *(triggers clarification: billed / collected / deal value?)*
-8. "Which customers have deals but no active work orders?" *(returns documented limitation)*
-9. "Prepare a leadership update."
-10. "How clean is our data?"
+| Question | What it does |
+|---|---|
+| "How many deals and work orders do we have?" | Counts both boards |
+| "What's our open pipeline value?" | Pipeline total with sector breakdown |
+| "Break the pipeline down by sector." | Sector-by-sector pipeline table |
+| "How's our pipeline for the energy sector this quarter?" | Filtered pipeline with period |
+| "Which sector has the highest pipeline?" | Ranked sector breakdown |
+| "How much is outstanding?" | Receivables summary from Work Orders |
+| "How are collections improving?" | Collections total + trend limitation note |
+| "How many work orders are active vs completed?" | Operational status breakdown |
+| "Compare pipeline and execution by sector." | Cross-board sector analysis |
+| "What's our revenue?" | Triggers clarification question |
+| "How are we doing?" | Triggers clarification question |
+| "Prepare a leadership update." | Multi-tool executive summary |
+| "Are there missing values?" | Data quality report with null counts |
 
 ---
 
-## Data Normalization Approach
+## Query Understanding
 
-- **Dates**: parsed from Monday.com raw JSON (ISO strings), never from locale-formatted text. Missing dates → `None`, never substituted with today.
-- **Billing Status**: `BIlled` typo → `Billed` (3 occurrences in source).
-- **Invoice Status**: `Billed- Visit N` → `Partially Billed (per-visit)`.
-- **Quantities as per PO**: regex-split into (magnitude, unit). Not summed across sectors due to unit inconsistency (HA, count, etc.).
-- **None vs 0**: always distinct. A null deal value means "unknown," not "zero."
-- **Execution Status**: `Executed until current month` = ACTIVE recurring contract, not Completed.
+The parser extracts these dimensions from free-text questions:
+
+| Dimension | Examples |
+|---|---|
+| Intent | pipeline, billing, collections, receivables, ops, cross-board, quality, leadership |
+| Dataset | deals, work_orders, both |
+| Sector | Mining, Renewables, Railways (+ aliases: "energy" → Renewables) |
+| Period | this quarter, last quarter, this month, last month |
+| Groupby | by sector, by stage, by owner, by status |
+| Deal status | open, won, dead, on hold |
+| WO status | completed, ongoing, not started |
+
+**Clarification triggers:**
+- "What's our revenue?" → asks: billed, collected, or won deal value?
+- "How are we doing?" → asks: pipeline, billing/collections, or operations?
+- "Which BD owner has the most?" → asks: pipeline value, billed value, or win rate?
+
+---
+
+## Data Normalization
+
+| Issue | How handled |
+|---|---|
+| Missing dates | `None` — never substituted with today |
+| Missing numbers | `None` — never converted to 0 |
+| `BIlled` typo | → `Billed` (3 occurrences) |
+| `Billed- Visit N` invoice status | → `Partially Billed (per-visit)` |
+| Quantities with embedded units (e.g. `5360 HA`) | Split into magnitude + unit — never summed across units |
+| `Executed until current month` | Treated as ACTIVE (recurring contract) |
+| 4 fully-empty Work Order columns | Not imported — documented |
+
+---
+
+## Cross-Board Analysis
+
+**Reliable joins (used):**
+- **Sector level** — same taxonomy on both boards
+- **Owner/BD level** — same `OWNER_00x` masking scheme
+
+**Not supported:**
+- Customer-level join — `COMPANY0xx` (Deals) vs `WOCOMPANY_0xx` (Work Orders) are different namespaces. A join would be fabricated. The agent states this limitation explicitly.
+
+---
+
+## Error Handling
+
+| Scenario | Response |
+|---|---|
+| Monday.com unreachable | Clear error message, no fallback to stale data |
+| Auth failure | "Authentication failed — check MONDAY_API_TOKEN" |
+| Board not found | "Board ID not found — check board ID configuration" |
+| Empty result (valid query, no data) | Explains why (e.g., no deals in this period), not an error |
+| Malformed data | Excluded from calculation, counted in data-quality report |
+| Unsupported question | States what can and cannot be answered |
+
+---
+
+## Security
+
+- `MONDAY_API_TOKEN` stored only in `.env` (local) or Streamlit Cloud secrets — never in source code
+- Monday.com client is **read-only** — no mutation operations exist anywhere in the codebase
+- `.gitignore` includes `.env`, all CSV/Excel files, `__pycache__`
+- Logs record query parameters and counts — never full record data
 
 ---
 
 ## Known Limitations
 
-1. **Customer-level cross-board join not supported**: Deals uses `COMPANY0xx` codes; Work Orders uses `WOCOMPANY_0xx` codes. Different namespaces — no verified mapping. Cross-board analysis is reliable only at sector and owner/BD level.
-2. **4 Work Order columns are 100% empty** in the source data: `Expected Billing Month`, `Actual Collection Month`, `Collection status`, `Collection Date`. Not imported.
-3. **Pipeline totals are materially understated**: 181 of 344 deals (52%) have no `Masked Deal value`. The caveat is surfaced in every pipeline answer.
-4. **Close Date is rarely known**: 318 of 344 deals have no actual close date — only tentative close dates are available for most.
-5. **Weighted pipeline uses assumed probabilities**: High=75%, Med=50%, Low=25% — `Closure Probability` is categorical, not numeric in the source data.
-6. **Receivables aging not supported**: No days-since-invoiced field exists.
-
----
-
-## Assumptions
-
-- Calendar quarters (Jan–Mar, Apr–Jun, Jul–Sep, Oct–Dec) used for "this/last quarter" — no fiscal year specified.
-- "Revenue" is genuinely ambiguous → agent asks for basis before answering.
-- 12 duplicate deal rows were kept (not deleted) to avoid silently removing real business records.
-- Weighted pipeline: High=75%, Med=50%, Low=25% — stated assumption, not from source data.
-- `Executed until current month` = active (recurring), not completed.
-
----
-
-## Security Considerations
-
-- API keys stored only in `.env` (local) or hosting platform secrets (Streamlit Cloud). Never in source code.
-- Monday.com client is read-only — no mutation operations (`create_item`, `change_column_value`, etc.) are implemented.
-- `.gitignore` includes `.env` — verify before pushing.
-- Logs record query parameters and counts, not full record data.
+1. **No trend analysis** — the boards contain cumulative totals, not time-series. "Are collections improving?" returns the total with a caveat that trends cannot be calculated.
+2. **Customer-level cross-board join not supported** — different coding schemes on each board.
+3. **Pipeline totals understated** — 52% of deals have no recorded value. Every pipeline answer surfaces this caveat.
+4. **Deterministic parser** — less flexible than an LLM for unusual phrasing. Architecture supports LLM integration later.
+5. **Close Date rarely known** — 92% of deals have no actual close date; only tentative dates are available.
+6. **4 empty Work Order columns** — `Expected Billing Month`, `Actual Collection Month`, `Collection status`, `Collection Date` were 100% null and not imported.
 
 ---
 
 ## AI Tools Used
 
-- **LLM for agent reasoning**: Google Gemini 1.5 Flash via `google-generativeai` SDK (native function-calling)
 - **Coding assistant**: Kiro AI (used to scaffold and implement this project)
-
----
-
-## Challenges Faced
-
-1. **Work Orders header row offset**: The real header is row 2, not row 1 — programmatic detection was essential to avoid silently corrupting all 38 column names.
-2. **Cross-board join complexity**: Verifying that client codes are in different namespaces (not just different prefixes) required careful data inspection. The honest answer is "not reliably joinable at customer level" — which is harder to defend than a plausible-looking join, but more correct.
-3. **Revenue ambiguity**: Three different "revenue" numbers exist in the data (deal value, billed, collected). Making the LLM ask for disambiguation rather than guess required careful system prompt design.
-4. **Pipeline understatement**: Over half of deals have no value — the system must surface this caveat on every pipeline answer without becoming repetitively verbose.
+- **No LLM API is used at runtime** — the agent is fully deterministic

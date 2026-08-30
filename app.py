@@ -2,7 +2,8 @@
 Skylark Drones – Monday.com BI Agent
 Streamlit chat interface.
 
-All data comes from live Monday.com queries — no local Excel files are loaded here.
+Deterministic agent — no external LLM API.
+All data comes from live Monday.com queries at query time.
 """
 import os
 import sys
@@ -12,28 +13,37 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     stream=sys.stdout,
 )
 
-# ── Helper — defined BEFORE it is called below ─────────────────────────────────
+
 def _extract_caveat(text: str) -> str:
-    """Extract a data quality caveat sentence from answer text if present."""
+    """Extract a data quality caveat sentence from answer text."""
     lower = text.lower()
-    caveat_phrases = [
-        "missing deal value", "no recorded value", "pipeline may be understated",
-        "may be higher", "excluded from", "data quality",
-        "100% empty", "not supported", "limitation",
+    phrases = [
+        "missing", "no recorded value", "may be higher", "excluded from",
+        "data note", "100% empty", "not supported", "understated",
     ]
-    for phrase in caveat_phrases:
+    for phrase in phrases:
         if phrase in lower:
             for sentence in text.replace("\n", " ").split("."):
-                if phrase in sentence.lower() and len(sentence.strip()) > 20:
+                if phrase in sentence.lower() and len(sentence.strip()) > 25:
                     return sentence.strip() + "."
     return ""
+
+
+def _check_config() -> list[str]:
+    missing = []
+    if not os.environ.get("MONDAY_API_TOKEN"):
+        missing.append("MONDAY_API_TOKEN")
+    if not os.environ.get("DEALS_BOARD_ID"):
+        missing.append("DEALS_BOARD_ID")
+    if not os.environ.get("WORK_ORDERS_BOARD_ID"):
+        missing.append("WORK_ORDERS_BOARD_ID")
+    return missing
 
 
 # ── Page config ────────────────────────────────────────────────────────────────
@@ -45,30 +55,15 @@ st.set_page_config(
 
 st.title("🚁 Skylark Drones – BI Agent")
 st.caption(
-    "Ask questions about Skylark's deals pipeline and work order execution. "
-    "Answers are pulled live from Monday.com at query time."
+    "Ask founder-level questions about deals pipeline and work order execution. "
+    "Answers are pulled live from Monday.com — no external AI API required."
 )
-
-# ── Config check ───────────────────────────────────────────────────────────────
-def _check_config() -> list[str]:
-    missing = []
-    if not os.environ.get("MONDAY_API_TOKEN"):
-        missing.append("MONDAY_API_TOKEN")
-    if not os.environ.get("DEALS_BOARD_ID"):
-        missing.append("DEALS_BOARD_ID")
-    if not os.environ.get("WORK_ORDERS_BOARD_ID"):
-        missing.append("WORK_ORDERS_BOARD_ID")
-    if not os.environ.get("GEMINI_API_KEY"):
-        missing.append("GEMINI_API_KEY")
-    return missing
-
 
 missing_config = _check_config()
 if missing_config:
     st.error(
         f"⚠️ Missing configuration: **{', '.join(missing_config)}**\n\n"
-        "Set these in your `.env` file (local) or as app secrets (Streamlit Cloud). "
-        "See README.md for setup instructions."
+        "Set these in your `.env` file (local) or as app secrets (Streamlit Cloud)."
     )
 
 # ── Session state ──────────────────────────────────────────────────────────────
@@ -77,18 +72,20 @@ if "messages" not in st.session_state:
 
 # ── Suggested questions ────────────────────────────────────────────────────────
 SUGGESTED_QUESTIONS = [
-    "How many deals and work orders do we have in total?",
-    "What's our current open pipeline value?",
+    "How many deals and work orders do we have?",
+    "What's our open pipeline value?",
     "Break the pipeline down by sector.",
+    "How much is outstanding in receivables?",
     "How many work orders are active vs completed?",
-    "Compare pipeline and execution strength by sector.",
+    "Compare pipeline and execution by sector.",
+    "Which deals are likely to close soon?",
     "Prepare a leadership update.",
 ]
 
-st.markdown("**Suggested questions:**")
-cols = st.columns(3)
+st.markdown("**Try asking:**")
+cols = st.columns(4)
 for i, q in enumerate(SUGGESTED_QUESTIONS):
-    if cols[i % 3].button(q, key=f"sq_{i}"):
+    if cols[i % 4].button(q, key=f"sq_{i}"):
         st.session_state["prefill"] = q
         st.rerun()
 
@@ -97,16 +94,11 @@ st.divider()
 # ── Chat history ───────────────────────────────────────────────────────────────
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
-        if msg["role"] == "assistant":
-            st.markdown(msg["content"])
-            if msg.get("caveat"):
-                st.caption(f"ℹ️ {msg['caveat']}")
-        else:
-            st.markdown(msg["content"])
+        st.markdown(msg["content"])
 
 # ── Input ──────────────────────────────────────────────────────────────────────
 prefill = st.session_state.pop("prefill", "")
-user_input = st.chat_input("Ask a question about deals, pipeline, or work orders…")
+user_input = st.chat_input("Ask about pipeline, billing, work orders, receivables…")
 if prefill:
     user_input = prefill
 
@@ -119,50 +111,31 @@ if user_input:
         with st.spinner("Querying Monday.com…"):
             if missing_config:
                 result = {
-                    "answer": (
-                        "⚠️ Cannot query Monday.com — required configuration is missing. "
-                        "Please set the missing environment variables listed above."
-                    ),
-                    "tool_calls": [],
-                    "error": "config_missing",
+                    "answer": "⚠️ Configuration missing — please set the required environment variables.",
+                    "tool_calls": [], "error": "config_missing",
                 }
-            elif "leadership update" in user_input.lower() or "prepare a leadership" in user_input.lower():
-                from agent.loop import run_leadership_update
-                result = run_leadership_update()
             else:
-                from agent.loop import run_agent
-                history = [
-                    {"role": m["role"], "content": m["content"]}
-                    for m in st.session_state.messages[:-1]
-                    if m["role"] in ("user", "assistant")
-                ]
-                result = run_agent(user_input, history)
+                from agent.loop import run_agent, run_leadership_update
+                if "leadership update" in user_input.lower() or "prepare a leadership" in user_input.lower():
+                    result = run_leadership_update()
+                else:
+                    result = run_agent(user_input)
 
         answer = result.get("answer", "No response generated.")
         tool_calls = result.get("tool_calls", [])
+        plan = result.get("plan", {})
         error = result.get("error")
+        is_clarifying = result.get("is_clarifying", False)
 
-        if error and error not in ("config_missing",):
+        if error and error != "config_missing":
             st.error(answer)
         else:
             st.markdown(answer)
 
-        caveat = _extract_caveat(answer)
-        if caveat:
-            st.caption(f"ℹ️ {caveat}")
+        # Show plan/provenance for non-clarifying responses
+        if plan and not is_clarifying and not error:
+            with st.expander("🔍 Query plan (how this was answered)", expanded=False):
+                import json
+                st.code(json.dumps(plan, default=str, indent=2), language="json")
 
-        if tool_calls:
-            with st.expander("🔍 Tool calls (live Monday.com trace)", expanded=False):
-                for tc in tool_calls:
-                    st.code(
-                        f"Tool: {tc.get('tool', 'unknown')}\n"
-                        f"Args: {tc.get('args', {})}\n"
-                        f"Result: {tc.get('result_summary', '')}",
-                        language="text",
-                    )
-
-    st.session_state.messages.append({
-        "role": "assistant",
-        "content": answer,
-        "caveat": caveat,
-    })
+    st.session_state.messages.append({"role": "assistant", "content": answer})

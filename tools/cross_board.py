@@ -85,7 +85,7 @@ def _sector_comparison(deals: list, wos: list, question_type: str) -> dict:
         signal = "neutral"
         if len(open_deals) >= 10 and len(sec_wos) < 5:
             signal = "strong_pipeline_weak_execution"
-        elif len(active_wos) >= 5 and len(open_deals) < 5:
+        elif active_wos >= 5 and len(open_deals) < 5:
             signal = "strong_execution_low_new_pipeline"
         elif len(open_deals) >= 5 and active_wos >= 3:
             signal = "healthy_both"

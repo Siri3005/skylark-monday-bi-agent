@@ -86,6 +86,9 @@ QUALITY_WORDS = {
     "missing values", "missing value", "null values", "null value",
     "incomplete data", "data issues", "data problems", "data gaps",
     "how complete", "data completeness",
+    "incomplete values", "any missing", "missing or incomplete",
+    "incomplete or missing", "are there missing", "are there any missing",
+    "gaps in the data", "data gaps", "missing fields",
 }
 
 LEADERSHIP_WORDS = {
@@ -257,7 +260,12 @@ def parse_query(text: str) -> ParsedQuery:
 
     # ── Step 3: Data quality ──────────────────────────────────────────────────
     # Check this early — "missing values" etc. must not be mistaken for receivables
-    if any(w in low for w in QUALITY_WORDS):
+    if any(w in low for w in QUALITY_WORDS) or re.search(
+        r'\b(missing|incomplete|null|empty|blank)\b.{0,30}\b(data|values?|fields?|records?)\b',
+        low
+    ) or re.search(
+        r'\bare\s+there\s+(any\s+)?(missing|incomplete|null)\b', low
+    ):
         q.intent = "quality"
         q.dataset = "both"
         if "deal" in low:
@@ -289,6 +297,9 @@ def parse_query(text: str) -> ParsedQuery:
     elif re.search(r'\bby\s+status\b', low):
         q.groupby = "status"
     elif re.search(r'\bby\s+customer\b', low) or re.search(r'\bper\s+customer\b', low) or re.search(r'\bby\s+client\b', low):
+        q.groupby = "customer"
+    # "which customers/clients have the highest/most X" — implicit groupby customer
+    elif re.search(r'\bwhich\s+(customers?|clients?|accounts?)\b', low):
         q.groupby = "customer"
 
     # ── Step 7: Extract deal status filters ──────────────────────────────────
@@ -339,6 +350,10 @@ def parse_query(text: str) -> ParsedQuery:
         r'\bdeals.*work order\b', r'\bwork order.*deal\b',
         r'\bsales.*ops\b', r'\bops.*sales\b',
         r'\bwhich\s+sector.*performing\b', r'\bsector\s+performance\b',
+        r'\bboth.*pipeline.*work order\b', r'\bboth.*work order.*pipeline\b',
+        r'\bhigh.*pipeline.*high.*work\b', r'\bhigh.*work.*high.*pipeline\b',
+        r'\bpipeline.*and.*work order\b', r'\bwork order.*and.*pipeline\b',
+        r'\bpipeline.*billed\b', r'\bbilled.*pipeline\b',
     ]
     if any(re.search(p, low) for p in cross_signals):
         q.intent = "cross_board"

@@ -149,6 +149,9 @@ def _execute(q: ParsedQuery, plan: dict) -> dict:
         args = {}
         if q.sector:
             args["sector"] = q.sector
+        if q.groupby == "customer":
+            # Need raw records for per-customer breakdown
+            return dispatch_tool("get_work_orders", {"sector_filter": q.sector})
         return dispatch_tool("calculate_operational_metrics", args)
 
     # ── Operations / Work Orders ──────────────────────────────────────────────

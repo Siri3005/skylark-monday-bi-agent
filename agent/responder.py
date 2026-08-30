@@ -99,6 +99,8 @@ def generate_response(q: ParsedQuery, plan: dict, data: dict) -> str:
     elif intent in ("revenue", "billing", "collections"):
         return _format_revenue(q, data)
     elif intent == "receivables":
+        if q.groupby == "customer" and "records" in data:
+            return _format_receivables_by_customer(q, data)
         return _format_receivables(q, data)
     elif intent == "ops":
         return _format_ops(q, data)
@@ -316,6 +318,80 @@ def _format_revenue(q: ParsedQuery, data: dict) -> str:
     missing = dq.get("records_with_missing_value", dq.get("records_with_missing_deal_value", 0))
     if missing > 0:
         lines.append(f"\n> ℹ️ **Data note:** {missing} records have no value recorded and are excluded.")
+
+    return "\n".join(lines)
+
+
+def _format_receivables_by_customer(q: ParsedQuery, data: dict) -> str:
+    """Per-customer receivables breakdown from raw WO records."""
+    records = data.get("records", [])
+    if not records:
+        return "No work order records found to calculate customer receivables."
+
+    from collections import defaultdict
+    customer_totals: dict[str, dict] = defaultdict(
+        lambda: {"receivable": 0.0, "billed": 0.0, "collected": 0.0, "wo_count": 0}
+    )
+    missing_receivable = 0
+    missing_customer = 0
+
+    for r in records:
+        customer = r.get("customer_code") or r.get("deal_name") or "Unknown"
+        if not r.get("customer_code"):
+            missing_customer += 1
+
+        rec_val = r.get("receivable")
+        bil_val = r.get("billed_incl_gst")
+        col_val = r.get("collected")
+
+        if rec_val is None:
+            missing_receivable += 1
+        else:
+            customer_totals[customer]["receivable"] += rec_val
+
+        if bil_val is not None:
+            customer_totals[customer]["billed"] += bil_val
+        if col_val is not None:
+            customer_totals[customer]["collected"] += col_val
+        customer_totals[customer]["wo_count"] += 1
+
+    # Sort by receivable descending
+    ranked = sorted(customer_totals.items(), key=lambda x: -x[1]["receivable"])
+    total_receivable = sum(v["receivable"] for _, v in ranked)
+
+    lines = [f"**Customers by Outstanding Receivables** (top {min(len(ranked), 15)} of {len(ranked)})"]
+    lines.append("")
+    lines.append("| Customer | Work Orders | Billed | Collected | Receivable |")
+    lines.append("|----------|------------|-------:|----------:|-----------:|")
+    for customer, d in ranked[:15]:
+        lines.append(
+            f"| {customer} | {d['wo_count']} | "
+            f"{_fmt_inr(d['billed'])} | {_fmt_inr(d['collected'])} | "
+            f"**{_fmt_inr(d['receivable'])}** |"
+        )
+    lines.append("")
+
+    if ranked:
+        top_customer = ranked[0][0]
+        top_val = ranked[0][1]["receivable"]
+        pct = round(top_val / total_receivable * 100) if total_receivable > 0 else 0
+        lines.append(
+            f"**{top_customer}** has the highest outstanding receivables at "
+            f"{_fmt_inr(top_val)} ({pct}% of total)."
+        )
+        lines.append(f"Total outstanding across all customers: **{_fmt_inr(total_receivable)}**")
+
+    lines.append("")
+    if missing_receivable > 0:
+        lines.append(
+            f"> ℹ️ **Data note:** {missing_receivable} of {len(records)} work orders have no "
+            f"'Amount Receivable' recorded and are excluded from the totals."
+        )
+    if missing_customer > 0:
+        lines.append(
+            f"> ℹ️ **Customer note:** {missing_customer} work orders have no customer code — "
+            f"grouped by deal name instead. Customer identifiers are masked in source data."
+        )
 
     return "\n".join(lines)
 
